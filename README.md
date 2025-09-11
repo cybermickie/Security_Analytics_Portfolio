@@ -66,6 +66,19 @@ It demonstrates my skills in:
 - Created **pivot tables** to aggregate Total, Average, Maximum, and Minimum Risk Scores by Status  
 - Designed visuals:  
   - ✅ Pie Chart – **Risk Distribution by Status**  
-  - ✅ Bar Chart – **Risk Scores by Status**  
+  - ✅ Bar Chart – **Risk Scores by Status**
+  - 
+# SQL GRC Portfolio
 
+This repository contains entry-level SQL projects demonstrating database creation, queries, and data manipulation for Governance, Risk, and Compliance (GRC) use cases.
+
+## Files
+- `Employees_Table.sql` – SQL script to create and manage the employees table
+- `Employees_Table.csv` – Sample CSV data for the table
+
+## Skills Demonstrated
+- SQL Basics: SELECT, FROM, WHERE, ORDER BY, LIMIT
+- Aggregations: COUNT, SUM, MIN, MAX, AVG
+- Data Manipulation: INSERT, UPDATE, DELETE
+- Table Management: CREATE, ALTER, DROP
 
