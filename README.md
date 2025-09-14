@@ -1,5 +1,5 @@
 # 🛡️ Portfolio  
-**Compliance & Risk Analysis Projects – Portfolio of Michael Lumor**  
+** Soc, Compliance & Risk Analysis Projects – Portfolio of Michael Lumor**  
 
 ---
 
