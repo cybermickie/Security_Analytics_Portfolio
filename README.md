@@ -1,84 +1,86 @@
-# 🛡️ Portfolio  
-** Soc, Compliance & Risk Analysis Projects – Portfolio of Michael Lumor**  
+🛡️ Security & Compliance Portfolio
 
----
+SOC & GRC Analysis Projects – Portfolio of Michael Lumor
 
-## 📌 Introduction  
-This repository showcases my Governance, Risk, and Compliance (GRC) projects.  
-It demonstrates my skills in:  
-- Compliance documentation  
-- Risk assessment & analysis  
-- Data visualization  
-- Portfolio building using **Python, Jupyter Notebooks, and Excel**  
+⸻
 
----
+📌 Introduction
 
-## 🖥️ Project 1: Compliance Analysis (Jupyter Notebook)  
-**Files Included:**  
-- `Compliance_Project.ipynb` – Jupyter Notebook  
-- `Compliance_Project.pdf` – Exported PDF report  
+This repository showcases my Security Operations Center (SOC) and Governance, Risk, and Compliance (GRC) projects.
+It demonstrates my skills in:
+	•	SOC monitoring, incident detection, and response
+	•	Threat analysis and escalation
+	•	Compliance documentation and risk assessment
+	•	Portfolio building and professional reporting
 
-**Highlights:**  
-- Created a compliance control table with frameworks: **SOX, HIPAA, NIST CSF**  
-- Applied **filtering, grouping, and aggregation** for risk ratings  
-- Exported findings as professional **PDF documentation**  
+⸻
 
----
+🖥️ SOC Projects
 
-## 📊 Project 2: Compliance Analysis (Excel)  
-**Files Included:**  
-- `Compliance_Excel.xlsx` – Excel workbook  
-- `Compliance_Excel.pdf` – Exported PDF with visuals  
+Project 1: SOC Monitoring & Incident Response
 
-**Highlights:**  
-- Built a **Compliance Control Master Table**  
-- Applied **filtering and grouping by status**  
-- Used **pivot tables** for aggregation: Total, Average, Maximum, Minimum Risk Ratings  
-- Designed visuals:  
-  - ✅ Pie Chart – **Status Distribution** (green = Implemented, yellow = In Progress, red = Pending)  
-  - ✅ Bar Chart – **Risk Ratings by Status**  
+Deliverables:
+	•	PDF reports documenting monitored events, incidents, and escalations
+	•	Jira tickets tracking alerts and resolution
+Highlights:
+	•	Monitored network traffic, logs, and endpoint alerts using Splunk, Microsoft Sentinel, CrowdStrike
+	•	Detected and escalated actionable security incidents
+	•	Conducted threat analysis and mitigation for potential vulnerabilities
+	•	Generated professional incident reports for management review
 
----
+⸻
 
-## ⚠️ Project 3: Risk Assessment Analysis (Jupyter Notebook)  
-**Files Included:**  
-- `Risk_Assessment_Analysis.ipynb` – Jupyter Notebook  
-- `Risk_Assessment_Analysis.pdf` – Exported PDF report  
-- `Risk_Assessment_Analysis_Documentation.docx` – Supporting documentation  
+Project 2: Threat Detection & Ticket Management
 
-**Highlights:**  
-- Built a **standard risk table** with Likelihood, Impact, Risk Appetite, and Risk Tolerance  
-- Calculated **Risk Scores (Likelihood × Impact)**  
-- Applied filtering by **Status**  
-- Aggregated **Total, Average, Maximum, Minimum Risk Scores** by status  
-- Ready for **Excel visualization and portfolio presentation**  
+Deliverables:
+	•	PDF documentation of incident handling and resolution
+	•	Jira and ServiceNow ticket logs
+Highlights:
+	•	Investigated alerts and potential threats
+	•	Maintained and updated tickets to ensure timeliness and compliance
+	•	Coordinated with team to apply mitigation tactics
+	•	Documented processes and results for portfolio presentation
 
----
+⸻
 
-## 📑 Project 4: Risk Assessment Analysis (Excel)  
-**Files Included:**  
-- `Risk_Assessment_Excel.xlsx` – Excel workbook  
-- `Risk_Assessment_Excel.pdf` – Exported PDF with visuals  
+📊 GRC Projects
 
-**Highlights:**  
-- Developed a **Risk Register Table** with Likelihood, Impact, Risk Appetite, Risk Tolerance, and Risk Score  
-- Applied **filtering by status** to identify risks in Pending, In Progress, and Implemented states  
-- Created **pivot tables** to aggregate Total, Average, Maximum, and Minimum Risk Scores by Status  
-- Designed visuals:  
-  - ✅ Pie Chart – **Risk Distribution by Status**  
-  - ✅ Bar Chart – **Risk Scores by Status**
-  - 
-# SQL GRC Portfolio
+Project 1: Compliance Analysis (Python & Excel)
 
-This repository contains entry-level SQL projects demonstrating database creation, queries, and data manipulation for Governance, Risk, and Compliance (GRC) use cases.
+Files Included:
+	•	Compliance_Project.ipynb – Jupyter Notebook
+	•	Compliance_Project.xlsx – Excel workbook
+	•	Compliance_Project.pdf – Exported PDF report
+Highlights:
+	•	Built compliance control table using SOX, HIPAA, NIST CSF frameworks
+	•	Applied filtering, grouping, and aggregation for risk ratings
+	•	Generated professional PDF documentation for portfolio presentation
 
-## Files
-- `Employees_Table.sql` – SQL script to create and manage the employees table
-- `Employees_Table.csv` – Sample CSV data for the table
+⸻
 
-## Skills Demonstrated
-- SQL Basics: SELECT, FROM, WHERE, ORDER BY, LIMIT
-- Aggregations: COUNT, SUM, MIN, MAX, AVG
-- Data Manipulation: INSERT, UPDATE, DELETE
-- Table Management: CREATE, ALTER, DROP
+Project 2: Risk Assessment Analysis (Python & Excel)
+
+Files Included:
+	•	Risk_Assessment_Analysis.ipynb – Jupyter Notebook
+	•	Risk_Assessment_Excel.xlsx – Excel workbook
+	•	Risk_Assessment_Analysis.pdf – Exported PDF report
+Highlights:
+	•	Created a standard risk table with Likelihood, Impact, Risk Appetite, and Risk Tolerance
+	•	Calculated Risk Scores and filtered by status
+	•	Aggregated data for visualization using pivot tables and charts
+	•	Exported findings to professional PDF for portfolio
+
+⸻
+
+SQL GRC Portfolio
+
+Files Included:
+	•	Employees_Table.sql – SQL script
+	•	Employees_Table.csv – Sample data
+
+Skills Demonstrated:
+	•	SQL Basics: SELECT, FROM, WHERE, ORDER BY, LIMIT
+	•	Aggregations: COUNT, SUM, MIN, MAX, AVG
+	•	Data Manipulation: INSERT, UPDATE, DELETE
+	•	Table Management: CREATE, ALTER, DROP
 
