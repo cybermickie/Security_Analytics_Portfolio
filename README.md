@@ -1,4 +1,4 @@
-# 🛡️ GRC_Portfolio  
+# 🛡️ Portfolio  
 **Compliance & Risk Analysis Projects – Portfolio of Michael Lumor**  
 
 ---
