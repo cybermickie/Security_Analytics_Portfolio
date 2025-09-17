@@ -19,14 +19,23 @@ It demonstrates my skills in:
 
 Project 1: SOC Monitoring & Incident Response
 
-Deliverables:
-	•	PDF reports documenting monitored events, incidents, and escalations
-	•	Jira tickets tracking alerts and resolution
-Highlights:
-	•	Monitored network traffic, logs, and endpoint alerts using Splunk, Microsoft Sentinel, CrowdStrike
-	•	Detected and escalated actionable security incidents
-	•	Conducted threat analysis and mitigation for potential vulnerabilities
-	•	Generated professional incident reports for management review
+## Overview
+This project contains SOC (Security Operations Center) exercises including IP logs, URL logs, and file hash logs. The exercises demonstrate log analysis, threat intelligence checks, and escalation documentation.
+
+## Project Contents
+- `RawLogs.md` – Contains the original exported logs from Splunk.
+- `IP_analysis.md` – Analysis of suspicious IP activity.
+- `URL_analysis.md` – Analysis of blocked/denied URLs.
+- `FileHash_analysis.md` – Analysis of malicious file hashes.
+- Additional files for MITRE ATT&CK mapping and documentation.
+
+## Tools Used
+- Splunk (SIEM)
+- Threat Intelligence sources: WHOIS, VirusTotal, AbuseIPDB
+- VS Code for documentation (Markdown)
+
+## Notes
+All alerts are simulated for training purposes. Escalation and MITRE ATT&CK mapping are included where relevant.
 
 ⸻
 
