@@ -1,0 +1,222 @@
+from flask import Flask, request, jsonify, g
+from flask_cors import CORS
+import math, sqlite3, os
+
+# Initialize Flask app
+app = Flask(__name__)
+
+# CORS Configuration: Update `origins` with your frontend's domain in production
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://yourfrontend.com"]}}, supports_credentials=True)
+
+# Database Configuration
+DATABASE_PATH = 'calculator.db'
+
+def get_db():
+    """Gets a new database connection for the current request."""
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE_PATH)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    """Closes the database connection at the end of the request."""
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    """Initializes the database schema."""
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                expression TEXT NOT NULL,
+                result REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        db.commit()
+
+# Initialize the database
+init_db()
+
+# -------------------------
+# Constants: Offline Currency and Unit Conversion Rates
+# -------------------------
+CURRENCY_RATES = {
+    "USD": 1.0, "EUR": 0.90, "GBP": 0.75, "CAD": 1.35, "AUD": 1.45,
+    "JPY": 140.0, "CHF": 0.85, "CNY": 7.0, "INR": 83.0, "BRL": 5.5,
+    "MXN": 20.0, "KRW": 1300, "SGD": 1.30, "HKD": 7.80, "NOK": 10.5,
+    "SEK": 10.2, "NZD": 1.60, "TRY": 35.0, "ZAR": 17.5, "RUB": 95.0,
+    "PLN": 3.85, "THB": 33.0, "MYR": 4.2, "IDR": 15000, "PHP": 55.0,
+    "VND": 24000, "EGP": 50.0, "SAR": 3.75, "AED": 3.67, "ILS": 3.75,
+    "DKK": 6.7, "CZK": 22.5, "HUF": 360.0, "ISK": 135.0, "CLP": 920.0,
+    "COP": 4100.0, "ARS": 950.0, "RON": 4.45, "BGN": 1.76, "HRK": 6.95,
+    "GHS": 12.30, "NGN": 1488.87, "KES": 129.25, "XAF": 556.92, "XOF": 556.50
+}
+
+CONVERSIONS = {
+    "length": {"mm": 0.001, "cm": 0.01, "m": 1.0, "km": 1000.0, "in": 0.0254, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344, "nm": 1852.0},
+    "area": {"mm2": 1e-6, "cm2": 1e-4, "m2": 1.0, "km2": 1e6, "in2": 0.00064516, "ft2": 0.092903, "yd2": 0.836127, "acre": 4046.8564224, "hectare": 10000.0, "mi2": 2589988.110336},
+    "volume": {"ml": 0.001, "l": 1.0, "m3": 1000.0, "tsp": 0.00492892, "tbsp": 0.0147868, "fl_oz": 0.0295735, "cup": 0.236588, "pt": 0.473176, "qt": 0.946353, "gal": 3.78541, "ft3": 28.316846592, "in3": 0.0163871},
+    "mass": {"mg": 1e-6, "g": 0.001, "kg": 1.0, "t": 1000.0, "oz": 0.0283495, "lb": 0.45359237, "st": 6.35029318},
+    "temperature": {"C": "C", "F": "F", "K": "K"},
+    "speed": {"m/s": 1.0, "km/h": 0.27778, "mph": 0.44704, "knot": 0.51444, "ft/s": 0.3048},
+    "time": {"ns": 1e-9, "us": 1e-6, "ms": 0.001, "s": 1.0, "min": 60.0, "h": 3600.0, "day": 86400.0, "wk": 604800.0},
+    "data": {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4, "PB": 1024**5},
+    "energy": {"J": 1.0, "kJ": 1000.0, "cal": 4.184, "kcal": 4184.0, "Wh": 3600.0, "kWh": 3.6e6, "BTU": 1055.06},
+    "force": {"N": 1.0, "kN": 1000.0, "lbf": 4.44822, "kgf": 9.80665, "dyn": 1e-5},
+    "power": {"W": 1.0, "kW": 1000.0, "HP": 745.7, "BTU/h": 0.29307},
+    "pressure": {"Pa": 1.0, "kPa": 1000.0, "bar": 100000.0, "psi": 6894.76, "atm": 101325.0, "mmHg": 133.32},
+    "fuel": {"km/l": 1.0, "l/100km": 0.01, "mpg_us": 0.42514, "mpg_imp": 0.35401},
+    "angle": {"deg": 1.0, "rad": math.pi / 180.0, "grad": 0.9},
+    "frequency": {"Hz": 1.0, "kHz": 1000, "MHz": 1e6, "GHz": 1e9},
+    "currency": CURRENCY_RATES
+}
+
+# -------------------------
+# Helper Functions
+# -------------------------
+def apple_round(val):
+    """Rounds values similarly to the Apple calculator."""
+    if isinstance(val, (int,)) or (isinstance(val, float) and val.is_integer()):
+        return int(val)
+    return round(val, 4)
+
+def validate_expression(expr):
+    """Validates if the expression contains only allowed characters."""
+    allowed_chars = "0123456789+-*/()., %^eEpi"
+    allowed_words = ["sin", "cos", "tan", "log", "sqrt", "abs", "exp", "pow"]
+    if any(char not in allowed_chars for char in expr.replace(" ", "")):
+        raise ValueError("Expression contains invalid characters.")
+    if any(word not in allowed_words for word in expr.split()):
+        raise ValueError("Expression contains invalid functions.")
+
+# -------------------------
+# Endpoints
+# -------------------------
+@app.route("/calculate", methods=["POST"])
+def calculate():
+    p = request.json or {}
+    expr = p.get("expression", "")
+    session_id = p.get("session_id")
+    previous_result = float(p.get("previous_result", 0))
+    
+    try:
+        validate_expression(expr)
+        expr = expr.replace('×', '*').replace('÷', '/').replace('−', '-').replace('^', '**')
+        expr = expr.replace('π', 'pi').replace('E', '*10**')
+
+        if expr.strip().startswith(('+', '-', '*', '/')):
+            expr = f"{previous_result}{expr}"
+
+        result = eval(expr, {"__builtins__": None}, {"math": math, "pi": math.pi, "e": math.e})
+        
+        if session_id:
+            db = get_db()
+            db.execute(
+                "INSERT INTO history (session_id, expression, result) VALUES (?, ?, ?)",
+                (session_id, expr, result)
+            )
+            db.commit()
+
+        return jsonify({"result": apple_round(result), "raw": result})
+
+    except (SyntaxError, ZeroDivisionError, ValueError) as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "Invalid expression"}), 500
+
+@app.route("/convert", methods=["POST"])
+def convert_units():
+    p = request.json or {}
+    from_unit = p.get("from_unit")
+    to_unit = p.get("to_unit")
+    value = float(p.get("value"))
+    category = p.get("category")
+
+    try:
+        if category not in CONVERSIONS:
+            raise ValueError("Invalid category")
+        if from_unit not in CONVERSIONS[category] or to_unit not in CONVERSIONS[category]:
+            raise ValueError("Invalid units in the specified category")
+        
+        if category == "temperature":
+            if from_unit == "C" and to_unit == "F":
+                result = (value * 9/5) + 32
+            elif from_unit == "F" and to_unit == "C":
+                result = (value - 32) * 5/9
+            elif from_unit == "C" and to_unit == "K":
+                result = value + 273.15
+            elif from_unit == "K" and to_unit == "C":
+                result = value - 273.15
+            elif from_unit == "F" and to_unit == "K":
+                result = (value - 32) * 5/9 + 273.15
+            elif from_unit == "K" and to_unit == "F":
+                result = (value - 273.15) * 9/5 + 32
+            else:
+                raise ValueError("Unsupported temperature conversion")
+        else:
+            result = (value * CONVERSIONS[category][from_unit]) / CONVERSIONS[category][to_unit]
+
+        return jsonify({"result": apple_round(result)})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "Failed to convert units"}), 500
+
+@app.route("/history", methods=["GET"])
+def get_history():
+    session_id = request.args.get("session_id")
+
+    try:
+        if not session_id:
+            raise ValueError("Session ID is required")
+        
+        db = get_db()
+        cursor = db.execute(
+            "SELECT expression, result, timestamp FROM history WHERE session_id = ? ORDER BY timestamp DESC",
+            (session_id,)
+        )
+        history = [{"expression": row["expression"], "result": row["result"], "timestamp": row["timestamp"]} for row in cursor.fetchall()]
+        return jsonify({"history": history})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "Failed to retrieve history"}), 500
+
+@app.route("/units", methods=["GET"])
+def get_units():
+    try:
+        return jsonify({"units": CONVERSIONS})
+    except Exception:
+        return jsonify({"error": "Failed to fetch units"}), 500
+
+@app.route("/update_currency", methods=["POST"])
+def update_currency():
+    p = request.json or {}
+    admin_key = p.get("admin_key")
+    new_rates = p.get("rates", {})
+
+    try:
+        if admin_key != "your_admin_key":
+            raise PermissionError("Unauthorized access")
+        if not isinstance(new_rates, dict):
+            raise ValueError("Rates must be a dictionary")
+        
+        CURRENCY_RATES.update(new_rates)
+        return jsonify({"message": "Currency rates updated successfully"})
+    except PermissionError as e:
+        return jsonify({"error": str(e)}), 403
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception:
+        return jsonify({"error": "Failed to update currency rates"}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
