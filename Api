@@ -1,0 +1,305 @@
+from flask import Flask, request, jsonify, g
+from flask_cors import CORS
+import math, ast, operator, random
+import sqlite3
+import os
+
+app = Flask(__name__)
+CORS(app, origins=["*"])
+
+DATABASE_PATH = 'calculator.db'
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE_PATH)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                expression TEXT NOT NULL,
+                result REAL NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        db.commit()
+
+init_db()
+
+CURRENCY_RATES = {
+    "USD": 1.0, "EUR": 0.90, "GBP": 0.75, "CAD": 1.35, "AUD": 1.45,
+    "JPY": 140.0, "CHF": 0.85, "CNY": 7.0, "INR": 83.0, "BRL": 5.5,
+    "MXN": 20.0, "KRW": 1300, "SGD": 1.30, "HKD": 7.80, "NOK": 10.5,
+    "SEK": 10.2, "NZD": 1.60, "TRY": 35.0, "ZAR": 17.5, "RUB": 95.0,
+    "PLN": 3.85, "THB": 33.0, "MYR": 4.2, "IDR": 15000, "PHP": 55.0,
+    "VND": 24000, "EGP": 50.0, "SAR": 3.75, "AED": 3.67, "ILS": 3.75,
+    "DKK": 6.7, "CZK": 22.5, "HUF": 360.0, "ISK": 135.0, "CLP": 920.0,
+    "COP": 4100.0, "ARS": 950.0, "RON": 4.45, "BGN": 1.76, "HRK": 6.95
+}
+
+CONVERSIONS = {
+    "length": {"mm":0.001,"cm":0.01,"m":1.0,"km":1000.0,"in":0.0254,"ft":0.3048,"yd":0.9144,"mi":1609.344,"nm":1852.0},
+    "area": {"mm2":1e-6,"cm2":1e-4,"m2":1.0,"km2":1e6,"in2":0.00064516,"ft2":0.092903,"yd2":0.836127,"acre":4046.8564224,"hectare":10000.0,"mi2":2589988.110336},
+    "volume": {"ml":0.001,"l":1.0,"m3":1000.0,"tsp":0.00492892,"tbsp":0.0147868,"fl_oz":0.0295735,"cup":0.236588,"pt":0.473176,"qt":0.946353,"gal":3.78541,"ft3":28.316846592,"in3":0.0163871},
+    "mass": {"mg":1e-6,"g":0.001,"kg":1.0,"t":1000.0,"oz":0.0283495,"lb":0.45359237,"st":6.35029318},
+    "temperature": {"C":"C","F":"F","K":"K"},
+    "speed": {"m/s":1.0,"km/h":0.27778,"mph":0.44704,"knot":0.51444,"ft/s":0.3048},
+    "time": {"ns":1e-9,"us":1e-6,"ms":0.001,"s":1.0,"min":60.0,"h":3600.0,"day":86400.0,"wk":604800.0},
+    "data": {"B":1,"KB":1024,"MB":1024**2,"GB":1024**3,"TB":1024**4,"PB":1024**5},
+    "energy": {"J":1.0,"kJ":1000.0,"cal":4.184,"kcal":4184.0,"Wh":3600.0,"kWh":3.6e6,"BTU":1055.06},
+    "force": {"N":1.0,"kN":1000.0,"lbf":4.44822,"kgf":9.80665,"dyn":1e-5},
+    "power": {"W":1.0,"kW":1000.0,"HP":745.7,"BTU/h":0.29307},
+    "pressure": {"Pa":1.0,"kPa":1000.0,"bar":100000.0,"psi":6894.76,"atm":101325.0,"mmHg":133.32},
+    "fuel": {"km/l":1.0,"l/100km":0.01,"mpg_us":0.42514,"mpg_imp":0.35401},
+    "angle": {"deg":1.0,"rad":math.pi/180.0,"grad":0.9},
+    "frequency": {"Hz":1.0,"kHz":1000.0,"MHz":1e6,"GHz":1e9},
+    "currency": CURRENCY_RATES
+}
+
+ALLOWED_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.Pow: operator.pow, ast.Mod: operator.mod,
+    ast.LShift: operator.lshift, ast.RShift: operator.rshift,
+    ast.BitAnd: operator.and_, ast.BitOr: operator.or_, ast.BitXor: operator.xor
+}
+ALLOWED_UNARYOPS = {
+    ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Invert: operator.invert
+}
+ALLOWED_FUNCS = {
+    "sqrt": math.sqrt, "cbrt": lambda x: math.copysign(abs(x)**(1/3), x),
+    "square": lambda x: x**2, "cube": lambda x: x**3,
+    "pow2": lambda x: 2**x, "pow": lambda x, y: x**y,
+    "ln": math.log, "log": math.log10, "log2": math.log2,
+    "exp": math.exp, "exp10": lambda x: 10**x,
+    "fact": math.factorial, "factorial": math.factorial,
+    "npr": math.perm, "ncr": math.comb, "rand": random.random,
+    "deg": math.degrees, "rad": math.radians,
+    "sin": math.sin, "cos": math.cos, "tan": math.tan,
+    "asin": math.asin, "acos": math.acos, "atan": math.atan,
+    "sinh": math.sinh, "cosh": math.cosh, "tanh": math.tanh,
+    "asinh": math.asinh, "acosh": math.acosh, "atanh": math.atanh
+}
+
+def _call_math_func(name, args, degree_mode=False):
+    if name.lower() in ("sin", "cos", "tan"):
+        if degree_mode:
+            args = [math.radians(x) for x in args]
+    
+    if name.lower() in ALLOWED_FUNCS:
+        func = ALLOWED_FUNCS[name.lower()]
+        return func(*args)
+
+    raise ValueError(f"Unsupported function or incorrect arguments: {name}")
+
+def _safe_eval_node(node, degree_mode=False):
+    if isinstance(node, ast.Constant): return node.value
+    if isinstance(node, ast.Num): return node.n
+    if isinstance(node, ast.BinOp):
+        op_type = type(node.op)
+        if op_type not in ALLOWED_BINOPS: raise ValueError(f"Unsupported binary operator: {op_type.__name__}")
+        return ALLOWED_BINOPS[op_type](_safe_eval_node(node.left, degree_mode), _safe_eval_node(node.right, degree_mode))
+    if isinstance(node, ast.UnaryOp):
+        op_type = type(node.op)
+        if op_type not in ALLOWED_UNARYOPS: raise ValueError(f"Unsupported unary operator: {op_type.__name__}")
+        return ALLOWED_UNARYOPS[op_type](_safe_eval_node(node.operand, degree_mode))
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name): raise ValueError("Invalid function call")
+        fname = node.func.id
+        args = [_safe_eval_node(a, degree_mode) for a in node.args]
+        return _call_math_func(fname, args, degree_mode)
+    if isinstance(node, ast.Name):
+        if node.id.lower() == "pi": return math.pi
+        if node.id.lower() == "e": return math.e
+        raise ValueError(f"Unsupported variable: {node.id}")
+    raise ValueError(f"Bad expression node type: {type(node).__name__}")
+
+def safe_eval(expr, degree_mode=False):
+    try:
+        expr = expr.replace('×', '*').replace('÷', '/').replace('−', '-').replace('^', '**').replace('π', 'math.pi')
+        expr = expr.replace('e', 'math.e')
+        if '%' in expr:
+            expr = expr.replace('%', '/100')
+        tree = ast.parse(expr, mode='eval')
+        return _safe_eval_node(tree.body, degree_mode)
+    except (ValueError, SyntaxError, TypeError) as e:
+        raise ValueError(f"Calculation Error: {e}")
+
+def apple_round(val):
+    if isinstance(val, (int,)) or (isinstance(val, float) and val.is_integer()):
+        return int(val)
+    return round(val, 10)
+
+def int_to_base(n, base, width=64):
+    if base == 10: return str(n)
+    if n < 0: n = (n + (1 << width)) & ((1 << width) - 1)
+    if base == 2: return bin(n)[2:].upper()
+    if base == 8: return oct(n)[2:].upper()
+    if base == 16: return hex(n)[2:].upper()
+    raise ValueError("Invalid base")
+
+def base_to_int(s, base):
+    return int(s, base)
+
+@app.route("/units", methods=["GET"])
+def units():
+    units_dict = {k: list(v.keys()) for k, v in CONVERSIONS.items()}
+    units_dict["currency"] = sorted(CURRENCY_RATES.keys())
+    return jsonify({"categories": list(CONVERSIONS.keys()), "units": units_dict})
+
+@app.route("/calculate", methods=["POST"])
+def calculate():
+    p = request.json or {}
+    expr = p.get("expression", "")
+    session_id = p.get("session_id")
+    degree_mode = p.get("degree_mode", False)
+
+    try:
+        result = safe_eval(expr, degree_mode)
+        
+        if session_id:
+            db = get_db()
+            db.execute(
+                "INSERT INTO history (session_id, expression, result) VALUES (?, ?, ?)",
+                (session_id, expr, result)
+            )
+            db.commit()
+
+        return jsonify({"result": apple_round(result), "raw": result})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": "An unexpected error occurred"}), 500
+
+@app.route("/history", methods=["GET"])
+def get_history():
+    session_id = request.args.get("session_id")
+    if not session_id:
+        return jsonify({"history": []})
+    
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT expression, result FROM history WHERE session_id = ? ORDER BY timestamp DESC LIMIT 50",
+        (session_id,)
+    )
+    history = [
+        {"expression": row['expression'], "result": apple_round(row['result'])}
+        for row in cursor.fetchall()
+    ]
+    return jsonify({"history": history})
+
+@app.route("/memory", methods=["POST"])
+def memory_route():
+    p = request.json or {}
+    op = p.get("operation", "").upper()
+    value = float(p.get("value", 0))
+    current_memory = float(p.get("current_memory", 0))
+
+    if op == "MC": new_memory = 0.0
+    elif op == "MR": return jsonify({"memory": current_memory})
+    elif op == "M+": new_memory = current_memory + value
+    elif op == "M-": new_memory = current_memory - value
+    else: return jsonify({"error": "invalid"}), 400
+    return jsonify({"memory": new_memory})
+
+@app.route("/programmer", methods=["POST"])
+def programmer_route():
+    p = request.json or {}
+    base = int(p.get("base", 10))
+    op = p.get("op", "TO").upper()
+    a_raw = p.get("a", "0")
+    b_raw = p.get("b")
+    width = int(p.get("width", 64))
+
+    try:
+        a = base_to_int(a_raw, base)
+        if op == "TO":
+            to_base = int(p.get("to_base", 10))
+            result = int_to_base(a, to_base, width)
+            return jsonify({"result": result, "raw": a})
+        
+        if op == "NOT":
+            res = (~a) & ((1 << width) - 1)
+            return jsonify({"result": int_to_base(res, base, width), "raw": res})
+        
+        if b_raw is None:
+            return jsonify({"error": "b required for binary operations"}), 400
+        
+        b = base_to_int(b_raw, base)
+        
+        out = {"AND": a & b, "OR": a | b, "XOR": a ^ b, "LSH": a << b, "RSH": a >> b}.get(op)
+        if out is None:
+            return jsonify({"error": f"Bad operation: {op}"}), 400
+        
+        return jsonify({"result": int_to_base(out, base, width), "raw": out})
+    except (ValueError, TypeError) as e:
+        return jsonify({"error": f"Programmer Error: {e}"}), 400
+
+@app.route("/convert", methods=["POST"])
+def convert_route():
+    p = request.json or {}
+    cat = p.get("category", "").lower()
+    frm = p.get("from_unit")
+    to = p.get("to_unit")
+    val_str = p.get("value", "0")
+
+    try:
+        val = float(val_str)
+    except ValueError:
+        return jsonify({"error": "Invalid value for conversion"}), 400
+
+    if cat == "temperature":
+        if frm == to: return jsonify({"result": apple_round(val)})
+        if frm == "C" and to == "F": res = val * 9/5 + 32
+        elif frm == "F" and to == "C": res = (val - 32) * 5/9
+        elif frm == "C" and to == "K": res = val + 273.15
+        elif frm == "K" and to == "C": res = val - 273.15
+        elif frm == "F" and to == "K": res = (val - 32) * 5/9 + 273.15
+        elif frm == "K" and to == "F": res = (val - 273.15) * 9/5 + 32
+        else: return jsonify({"error": "Invalid temperature units"}), 400
+        return jsonify({"result": apple_round(res)})
+
+    if cat == "currency":
+        rates = CONVERSIONS["currency"]
+        if frm not in rates or to not in rates:
+            return jsonify({"error": "Currency not supported"}), 400
+        usd_value = val / rates[frm]
+        result = usd_value * rates[to]
+        return jsonify({"result": apple_round(result), "live": False})
+
+    if cat not in CONVERSIONS or frm not in CONVERSIONS[cat] or to not in CONVERSIONS[cat]:
+        return jsonify({"error": "Invalid category or units"}), 400
+    
+    conversion_map = CONVERSIONS[cat]
+    result = val * (conversion_map[frm] / conversion_map[to])
+    return jsonify({"result": apple_round(result)})
+
+@app.route("/modes", methods=["GET"])
+def modes():
+    return jsonify({
+        "basic": ["+", "-", "×", "÷", "%"],
+        "scientific": ["sqrt", "cbrt", "square", "cube", "pow2", "pow", "log", "ln", "log2", "exp", "10^",
+                      "sin", "cos", "tan", "asin", "acos", "atan",
+                      "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+                      "pi", "e", "factorial", "nPr", "nCr", "Rand"],
+        "programmer": ["AND", "OR", "XOR", "NOT", "LSH", "RSH", "bin", "oct", "hex", "dec"],
+        "memory": ["MC", "MR", "M+", "M-"],
+        "conversions": {k: list(v.keys()) for k, v in CONVERSIONS.items()},
+        "currencies": sorted(list(CURRENCY_RATES.keys()))
+    })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
