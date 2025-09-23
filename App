@@ -1,0 +1,293 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import './styles.css';
+
+const API_BASE_URL = 'http://localhost:5000';
+
+const generateSessionId = () => {
+    return 'user_' + Math.random().toString(36).substr(2, 9);
+};
+
+const UNIT_FULL_NAMES = {
+    "mm": "Millimeter", "cm": "Centimeter", "m": "Meter", "km": "Kilometer", "in": "Inch", "ft": "Foot", "yd": "Yard", "mi": "Mile", "nm": "Nautical mile",
+    "mm2": "Sq. Millimeter", "cm2": "Sq. Centimeter", "m2": "Sq. Meter", "km2": "Sq. Kilometer", "in2": "Sq. Inch", "ft2": "Sq. Foot", "yd2": "Sq. Yard", "acre": "Acre", "hectare": "Hectare", "mi2": "Sq. Mile",
+    "ml": "Milliliter", "l": "Liter", "m3": "Cubic Meter", "tsp": "Teaspoon", "tbsp": "Tablespoon", "fl_oz": "Fluid Ounce", "cup": "Cup", "pt": "Pint", "qt": "Quart", "gal": "Gallon", "ft3": "Cubic Foot", "in3": "Cubic Inch",
+    "mg": "Milligram", "g": "Gram", "kg": "Kilogram", "t": "Tonne", "oz": "Ounce", "lb": "Pound", "st": "Stone",
+    "C": "Celsius", "F": "Fahrenheit", "K": "Kelvin",
+    "m/s": "Meters/sec", "km/h": "Kilometers/hr", "mph": "Miles/hr", "knot": "Knot", "ft/s": "Feet/sec",
+    "ns": "Nanosecond", "us": "Microsecond", "ms": "Millisecond", "s": "Second", "min": "Minute", "h": "Hour", "day": "Day", "wk": "Week",
+    "B": "Byte", "KB": "Kilobyte", "MB": "Megabyte", "GB": "Gigabyte", "TB": "Terabyte", "PB": "Petabyte",
+    "J": "Joule", "kJ": "Kilojoule", "cal": "Calorie", "kcal": "Kilocalorie", "Wh": "Watt-hour", "kWh": "Kilowatt-hour", "BTU": "BTU",
+    "N": "Newton", "kN": "Kilonewton", "lbf": "Pound-force", "kgf": "Kilogram-force", "dyn": "Dyne",
+    "W": "Watt", "kW": "Kilowatt", "HP": "Horsepower", "BTU/h": "BTU/hour",
+    "Pa": "Pascal", "kPa": "Kilopascal", "bar": "Bar", "psi": "PSI", "atm": "Atmosphere", "mmHg": "mmHg",
+    "km/l": "Km/liter", "l/100km": "Liters/100km", "mpg_us": "MPG (US)", "mpg_imp": "MPG (Imp)",
+    "deg": "Degree", "rad": "Radian", "grad": "Gradian",
+    "Hz": "Hertz", "kHz": "Kilohertz", "MHz": "Megahertz", "GHz": "Gigahertz"
+};
+
+const App = () => {
+    const [displayValue, setDisplayValue] = useState('0');
+    const [expression, setExpression] = useState('');
+    const [isDecimal, setIsDecimal] = useState(false);
+    const [justCalculated, setJustCalculated] = useState(false);
+    const [memory, setMemory] = useState(0);
+    const [mode, setMode] = useState('basic');
+    const [history, setHistory] = useState([]);
+    const [sessionId] = useState(generateSessionId());
+    const [currentView, setCurrentView] = useState('calculator');
+
+    const [activeConversion, setActiveConversion] = useState(null);
+    const [conversionValue, setConversionValue] = useState('');
+    const [units, setUnits] = useState({ categories: [], units: {} });
+    const [fromUnit, setFromUnit] = useState('');
+    const [toUnit, setToUnit] = useState('');
+    const [conversionResult, setConversionResult] = useState('');
+
+    const fetchHistory = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/history?session_id=${sessionId}`);
+            const data = await response.json();
+            if (data.history) {
+                setHistory(data.history);
+            }
+        } catch (error) {
+            console.error('Failed to fetch history:', error);
+        }
+    }, [sessionId]);
+
+    const fetchUnits = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/units`);
+            const data = await response.json();
+            setUnits(data);
+            if (data.categories.length > 0) {
+                const defaultCategory = data.categories[0];
+                setActiveConversion(defaultCategory);
+                const defaultUnits = data.units[defaultCategory];
+                if (defaultUnits.length >= 2) {
+                    setFromUnit(defaultUnits[0]);
+                    setToUnit(defaultUnits[1]);
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch units:', error);
+        }
+    };
+
+    useEffect(() => {
+        fetchUnits();
+        fetchHistory();
+    }, [fetchHistory]);
+
+    const handleInput = (input) => {
+        if (input === 'AC') {
+            setExpression('');
+            setDisplayValue('0');
+            setJustCalculated(false);
+            return;
+        }
+    
+        if (input === '=') {
+            handleCalculate();
+            return;
+        }
+
+        if (justCalculated && !isNaN(input)) {
+            setExpression(input);
+            setDisplayValue(input);
+            setJustCalculated(false);
+        } else {
+            setExpression(prev => prev + input);
+            setDisplayValue(prev => (prev === '0' || justCalculated) ? input : prev + input);
+            setJustCalculated(false);
+        }
+    };
+
+    const handleScientificFunc = (func) => {
+        setExpression(prev => prev + func + '(');
+        setDisplayValue(func);
+    };
+
+    const handleCalculate = async () => {
+        try {
+            const cleanExpression = expression.replace(/π/g, 'pi').replace(/e/g, 'e').replace(/sin/g, 'sin(').replace(/cos/g, 'cos(').replace(/tan/g, 'tan(');
+            
+            const response = await fetch(`${API_BASE_URL}/calculate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ expression: cleanExpression, session_id: sessionId, degree_mode: mode === 'scientific' }),
+            });
+            const data = await response.json();
+            
+            if (data.result !== undefined) {
+                setDisplayValue(data.result.toString());
+                setExpression(data.raw.toString());
+                setJustCalculated(true);
+                fetchHistory();
+            } else {
+                setDisplayValue('Error');
+                setExpression('Error');
+            }
+        } catch (error) {
+            setDisplayValue('Error');
+            setExpression('Error');
+        }
+    };
+
+    const handleConversion = async () => {
+        if (!activeConversion || !fromUnit || !toUnit) return;
+        try {
+            const response = await fetch(`${API_BASE_URL}/convert`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    category: activeConversion,
+                    value: conversionValue,
+                    from_unit: fromUnit,
+                    to_unit: toUnit,
+                }),
+            });
+            const data = await response.json();
+            if (data.result !== undefined) {
+                setConversionResult(data.result.toString());
+            } else {
+                setConversionResult('Error');
+            }
+        } catch (error) {
+            setConversionResult('Error');
+        }
+    };
+
+    const renderButtons = () => {
+        const basicButtons = [
+            ['AC', '+-', '%', '÷'],
+            ['7', '8', '9', '×'],
+            ['4', '5', '6', '-'],
+            ['1', '2', '3', '+'],
+            ['0', '.', '=']
+        ];
+    
+        const scientificButtons = [
+            'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'log', 'ln', 'e', 'pi', 'sqrt', 'x^2', 'x^y', '(', ')',
+        ];
+
+        return (
+            <div className="button-grid-wrapper">
+                {mode === 'scientific' && (
+                    <div className="scientific-grid-row">
+                        {scientificButtons.map(label => (
+                            <button key={label} className="button light-grey" onClick={() => handleScientificFunc(label)}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+                <div className="button-grid">
+                    {basicButtons.map((row, rowIndex) => (
+                        <div key={rowIndex} className="button-row">
+                            {row.map(label => {
+                                const buttonClass = `button ${['AC', '+-', '%', '÷', '×', '-', '+', '='].includes(label) ? 'orange' : ''} ${label === '0' ? 'wide' : ''}`;
+                                return (
+                                    <button key={label} className={buttonClass} onClick={() => handleInput(label)}>
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    const HistoryPanel = () => (
+        <div className={`history-panel ${currentView === 'history' ? 'open' : ''}`}>
+            <h3>History</h3>
+            <div className="history-list">
+                {history.length > 0 ? (
+                    history.map((item, index) => (
+                        <div key={index} className="history-item">
+                            <div className="history-expr">{item.expression}</div>
+                            <div className="history-result"> = {item.result}</div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="history-empty">No history yet.</div>
+                )}
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="main-container">
+            <div className="top-bar">
+                <button className={`view-toggle-btn ${currentView === 'calculator' ? 'active' : ''}`} onClick={() => setCurrentView('calculator')}>
+                    <span role="img" aria-label="calculator">🧮</span>
+                </button>
+                <button className={`view-toggle-btn ${currentView === 'converter' ? 'active' : ''}`} onClick={() => setCurrentView('converter')}>
+                    <span role="img" aria-label="converter">💱</span>
+                </button>
+                <button className={`view-toggle-btn ${currentView === 'history' ? 'active' : ''}`} onClick={() => setCurrentView('history')}>
+                    <span role="img" aria-label="history">📚</span>
+                </button>
+            </div>
+
+            {currentView === 'calculator' && (
+                <div className="calculator">
+                    <div className="display-container">
+                        <div className="expression">{expression}</div>
+                        <div className="display">{displayValue}</div>
+                    </div>
+                    <div className="mode-toggle">
+                        <button onClick={() => setMode('basic')} className={mode === 'basic' ? 'active' : ''}>Basic</button>
+                        <button onClick={() => setMode('scientific')} className={mode === 'scientific' ? 'active' : ''}>Scientific</button>
+                    </div>
+                    {renderButtons()}
+                </div>
+            )}
+
+            {currentView === 'converter' && (
+                <div className="converter-panel">
+                    <h3>Unit & Currency Converter</h3>
+                    <div className="conversion-controls">
+                        <div className="input-group">
+                            <select value={activeConversion} onChange={(e) => {
+                                const newCategory = e.target.value;
+                                setActiveConversion(newCategory);
+                                const newUnits = units.units[newCategory] || [];
+                                if (newUnits.length >= 2) {
+                                    setFromUnit(newUnits[0]);
+                                    setToUnit(newUnits[1]);
+                                }
+                            }}>
+                                {units.categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                        </div>
+                        <div className="input-group">
+                            <input type="number" value={conversionValue} onChange={(e) => setConversionValue(e.target.value)} placeholder="Enter value" />
+                        </div>
+                        <div className="input-group">
+                            <label>From</label>
+                            <select value={fromUnit} onChange={(e) => setFromUnit(e.target.value)}>
+                                {(units.units[activeConversion] || []).map(unit => <option key={unit} value={unit}>{UNIT_FULL_NAMES[unit] || unit}</option>)}
+                            </select>
+                        </div>
+                        <div className="input-group">
+                            <label>To</label>
+                            <select value={toUnit} onChange={(e) => setToUnit(e.target.value)}>
+                                {(units.units[activeConversion] || []).map(unit => <option key={unit} value={unit}>{UNIT_FULL_NAMES[unit] || unit}</option>)}
+                            </select>
+                        </div>
+                        <button onClick={handleConversion} className="convert-btn">Convert</button>
+                        <div className="conversion-result">
+                            <span className="result-label">Result:</span> {conversionResult}
+                        </div>
+                    </div>
+                </div>
+            )}
+            <HistoryPanel history={history} />
+        </div>
+    );
+};
+
+export default App;
