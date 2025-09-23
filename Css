@@ -1,0 +1,89 @@
+/* Body and general container styling */
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    background-color: #000; /* Black background to match a dark theme */
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: #fff;
+}
+
+/* Main calculator body */
+.calculator-body {
+    background-color: #1c1c1c;
+    border-radius: 25px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    width: 350px;
+}
+
+/* Display screen */
+#display {
+    width: 100%;
+    background-color: transparent;
+    border: none;
+    text-align: right;
+    font-size: 4rem;
+    color: #fff;
+    padding: 15px 0;
+    margin-bottom: 10px;
+    white-space: nowrap;
+    overflow-x: auto;
+    font-weight: 300;
+}
+
+/* Button grid layout */
+.buttons {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-gap: 12px;
+}
+
+/* Base button styling */
+.buttons button {
+    height: 70px;
+    border-radius: 50%;
+    border: none;
+    font-size: 1.8rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s;
+    font-weight: 500;
+}
+
+/* Specific button colors for your evil green theme */
+.buttons button[data-type="clear"],
+.buttons button[data-type="memory"] {
+    background-color: #a6a6a6;
+    color: #000;
+}
+
+.buttons button[data-type="number"],
+.buttons button[data-type="scientific"] {
+    background-color: #333333;
+    color: #fff;
+}
+
+.buttons button[data-type="operator"],
+.buttons button[data-value="="] {
+    background-color: #00e600; /* A vibrant, evil green */
+    color: #fff;
+}
+
+/* Double-width buttons for the "0" button */
+.buttons button[data-value="0"] {
+    grid-column: span 2;
+    border-radius: 35px;
+    text-align: left;
+    padding-left: 25px;
+}
+
+/* Hover effects */
+.buttons button:hover {
+    filter: brightness(1.2);
+}
+
+.buttons button:active {
+    transform: scale(0.95);
+}
