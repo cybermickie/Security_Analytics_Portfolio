@@ -1,0 +1,401 @@
+# calculator_api_final.py
+from flask import Flask, request, jsonify, g
+from flask_cors import CORS
+import math, sqlite3, os, random, re
+
+# -------------------------
+# App setup
+# -------------------------
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000", "http://yourfrontend.com"]}}, supports_credentials=True)
+
+DATABASE_PATH = 'calculator.db'
+
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        db.row_factory = sqlite3.Row
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                expression TEXT NOT NULL,
+                result TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        db.commit()
+
+init_db()
+
+# -------------------------
+# Conversion tables (unchanged)
+# -------------------------
+CURRENCY_RATES = {
+    "USD": 1.0, "EUR": 0.90, "GBP": 0.75, "CAD": 1.35, "AUD": 1.45,
+    "JPY": 140.0, "CHF": 0.85, "CNY": 7.0, "INR": 83.0, "BRL": 5.5,
+    "MXN": 20.0, "KRW": 1300, "SGD": 1.30, "HKD": 7.80, "NOK": 10.5,
+    "SEK": 10.2, "NZD": 1.60, "TRY": 35.0, "ZAR": 17.5, "RUB": 95.0,
+    "PLN": 3.85, "THB": 33.0, "MYR": 4.2, "IDR": 15000, "PHP": 55.0,
+    "VND": 24000, "EGP": 50.0, "SAR": 3.75, "AED": 3.67, "ILS": 3.75,
+    "DKK": 6.7, "CZK": 22.5, "HUF": 360.0, "ISK": 135.0, "CLP": 920.0,
+    "COP": 4100.0, "ARS": 950.0, "RON": 4.45, "BGN": 1.76, "HRK": 6.95,
+    "GHS": 12.30, "NGN": 1488.87, "KES": 129.25, "XAF": 556.92, "XOF": 556.50
+}
+
+CONVERSIONS = {
+    "length": {"mm": 0.001, "cm": 0.01, "m": 1.0, "km": 1000.0, "in": 0.0254, "ft": 0.3048, "yd": 0.9144, "mi": 1609.344, "nm": 1852.0},
+    "area": {"mm2": 1e-6, "cm2": 1e-4, "m2": 1.0, "km2": 1e6, "in2": 0.00064516, "ft2": 0.092903, "yd2": 0.836127, "acre": 4046.8564224, "hectare": 10000.0, "mi2": 2589988.110336},
+    "volume": {"ml": 0.001, "l": 1.0, "m3": 1000.0, "tsp": 0.00492892, "tbsp": 0.0147868, "fl_oz": 0.0295735, "cup": 0.236588, "pt": 0.473176, "qt": 0.946353, "gal": 3.78541, "ft3": 28.316846592, "in3": 0.0163871},
+    "mass": {"mg": 1e-6, "g": 0.001, "kg": 1.0, "t": 1000.0, "oz": 0.0283495, "lb": 0.45359237, "st": 6.35029318},
+    "temperature": {"C": "C", "F": "F", "K": "K"},
+    "speed": {"m/s": 1.0, "km/h": 0.27778, "mph": 0.44704, "knot": 0.51444, "ft/s": 0.3048},
+    "time": {"ns": 1e-9, "us": 1e-6, "ms": 0.001, "s": 1.0, "min": 60.0, "h": 3600.0, "day": 86400.0, "wk": 604800.0},
+    "data": {"B": 1, "KB": 1024, "MB": 1024**2, "GB": 1024**3, "TB": 1024**4, "PB": 1024**5},
+    "energy": {"J": 1.0, "kJ": 1000.0, "cal": 4.184, "kcal": 4184.0, "Wh": 3600.0, "kWh": 3.6e6, "BTU": 1055.06},
+    "force": {"N": 1.0, "kN": 1000.0, "lbf": 4.44822, "kgf": 9.80665, "dyn": 1e-5},
+    "power": {"W": 1.0, "kW": 1000.0, "HP": 745.7, "BTU/h": 0.29307},
+    "pressure": {"Pa": 1.0, "kPa": 1000.0, "bar": 100000.0, "psi": 6894.76, "atm": 101325.0, "mmHg": 133.32},
+    "fuel": {"km/l": 1.0, "l/100km": 0.01, "mpg_us": 0.42514, "mpg_imp": 0.35401},
+    "angle": {"deg": 1.0, "rad": math.pi / 180.0, "grad": 0.9},
+    "frequency": {"Hz": 1.0, "kHz": 1000, "MHz": 1e6, "GHz": 1e9},
+    "currency": CURRENCY_RATES
+}
+
+# -------------------------
+# Display rounding (Apple-like)
+# -------------------------
+def apple_round(val):
+    try:
+        if isinstance(val, (int,)) or (isinstance(val, float) and val.is_integer()):
+            return int(val)
+        return float(f"{val:.9g}")
+    except Exception:
+        return val
+
+# -------------------------
+# Globals for mode / second toggle
+# -------------------------
+MODE = "DEG"      # DEG or RAD (Apple default = DEG)
+SECOND = False    # Second-function toggle (false = normal, true = 2nd)
+
+# -------------------------
+# Helpers: preprocess and validation
+# -------------------------
+# Allowed characters regex (letters & digits & math symbols). This is a whitelist.
+_ALLOWED_RE = re.compile(r'^[0-9A-Za-z\s\.\+\-\*\/\^\(\)\%\!\,π²³]+$')
+
+def preprocess_expression(expr: str) -> str:
+    """Normalize symbols and handle percent/factorial shorthand and powers."""
+    if not isinstance(expr, str):
+        raise ValueError("Invalid expression")
+
+    # normalize common symbols
+    expr = expr.replace('×', '*').replace('÷', '/').replace('−', '-').replace('^', '**')
+    expr = expr.replace('π', 'pi').replace('Π', 'pi').replace('Rand', 'rand')
+
+    # convert superscripts
+    expr = expr.replace('²', '**2').replace('³', '**3')
+
+    # handle factorial shorthand: "5!" -> "factorial(5)"
+    expr = re.sub(r'(\d+(\.\d+)?|\))\s*!', r'factorial(\1)', expr)
+
+    # handle percent:
+    #  - simple replace n% -> (n/100)
+    expr = re.sub(r'(\d+(\.\d+)?)\s*%', r'(\1/100)', expr)
+
+    # approximate Apple behavior for "A + B%": convert "A + (B/100)" => "A + (A*(B/100))"
+    # Only a heuristic for common cases: number or parenthesized number as A
+    expr = re.sub(r'([0-9\.]+|\([^()]*\))\s*([\+\-])\s*\(\s*([0-9\.]+)\/100\s*\)', r'(\1 \2 (\1 * (\3/100)))', expr)
+
+    # remove commas used as thousands separators
+    expr = expr.replace(',', '')
+
+    # final basic whitelist check
+    if not _ALLOWED_RE.match(expr):
+        raise ValueError("Invalid characters in expression")
+
+    return expr
+
+# -------------------------
+# Function map builder (respects MODE and SECOND)
+# -------------------------
+def _to_angle_input(x):
+    return math.radians(x) if MODE == "DEG" else x
+
+def _from_angle_output(x):
+    return math.degrees(x) if MODE == "DEG" else x
+
+def build_function_map():
+    """
+    Build functions mapping for eval depending on MODE and SECOND flag.
+    Normal names available: sin, cos, tan, sinh, cosh, tanh, asin, acos, atan, etc.
+    When SECOND is True, map primary names to their second variants (sin->asin, log->tenpow, ln->exp, etc.)
+    """
+    # core functions (non-angle)
+    f = {
+        "pi": math.pi,
+        "e": math.e,
+        "abs": abs,
+        "sqrt": math.sqrt,
+        "log": math.log,     # natural
+        "ln": math.log,
+        "log10": math.log10,
+        "log2": math.log2,
+        "exp": math.exp,     # e^x
+        "pow": pow,
+        "factorial": math.factorial,
+        "rand": lambda: random.random(),
+        # powers
+        "tenpow": lambda x: math.pow(10, x),
+        "twopow": lambda x: math.pow(2, x),
+    }
+
+    # angle functions (respecting MODE)
+    # normal trig: accept angle in current MODE (convert to radians if needed)
+    normal_trig = {
+        "sin": lambda x: math.sin(_to_angle_input(x)),
+        "cos": lambda x: math.cos(_to_angle_input(x)),
+        "tan": lambda x: math.tan(_to_angle_input(x)),
+        "asin": lambda x: _from_angle_output(math.asin(x)),
+        "acos": lambda x: _from_angle_output(math.acos(x)),
+        "atan": lambda x: _from_angle_output(math.atan(x)),
+        # hyperbolic functions: these are defined in terms of real numbers (we will accept input as angle value too)
+        "sinh": lambda x: math.sinh(_to_angle_input(x)),
+        "cosh": lambda x: math.cosh(_to_angle_input(x)),
+        "tanh": lambda x: math.tanh(_to_angle_input(x)),
+        "asinh": lambda x: _from_angle_output(math.asinh(x)),
+        "acosh": lambda x: _from_angle_output(math.acosh(x)),
+        "atanh": lambda x: _from_angle_output(math.atanh(x)),
+        # reciprocal trig
+        "cot": lambda x: 1.0 / math.tan(_to_angle_input(x)),
+        "sec": lambda x: 1.0 / math.cos(_to_angle_input(x)),
+        "csc": lambda x: 1.0 / math.sin(_to_angle_input(x)),
+    }
+
+    f.update(normal_trig)
+
+    # SECOND mode swaps some button behaviors (Apple "2nd" button)
+    if SECOND:
+        # map primary names to second versions (sin -> asin etc.)
+        # also log -> tenpow, ln -> exp
+        # We'll keep the other names still callable by explicit name (asin etc.)
+        second_map = {
+            "sin": f["asin"],
+            "cos": f["acos"],
+            "tan": f["atan"],
+            "sinh": f["asinh"],
+            "cosh": f["acosh"],
+            "tanh": f["atanh"],
+            "cot": lambda x: 1.0 / f["atan"](x) if False else f["cot"](x),  # leave cot as-is (no second)
+            "log": f["tenpow"],   # log button becomes 10^x in 2nd
+            "ln": f["exp"],       # ln button becomes e^x in 2nd
+        }
+        # Apply second_map (primary name overrides)
+        f.update(second_map)
+
+    return f
+
+# -------------------------
+# Endpoints: mode & second toggle
+# -------------------------
+@app.route("/mode", methods=["GET", "POST"])
+def mode_endpoint():
+    global MODE
+    try:
+        if request.method == "POST":
+            data = request.json or {}
+            new_mode = (data.get("mode") or "").upper()
+            if new_mode not in ("DEG", "RAD"):
+                return jsonify({"error": "Error"}), 400
+            MODE = new_mode
+            return jsonify({"mode": MODE})
+        return jsonify({"mode": MODE})
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+@app.route("/second", methods=["GET", "POST"])
+def second_endpoint():
+    global SECOND
+    try:
+        if request.method == "POST":
+            data = request.json or {}
+            desired = data.get("second")
+            if desired is None:
+                return jsonify({"error": "Error"}), 400
+            SECOND = bool(desired)
+            return jsonify({"second": SECOND})
+        return jsonify({"second": SECOND})
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+# -------------------------
+# Main calculate endpoint
+# -------------------------
+@app.route("/calculate", methods=["POST"])
+def calculate():
+    p = request.json or {}
+    expr = p.get("expression", "")
+    session_id = p.get("session_id")
+    prev = p.get("previous_result", None)
+
+    try:
+        if expr is None:
+            return jsonify({"error": "Error"}), 400
+
+        expr = str(expr).strip()
+        # Preprocess (normalize symbols, percent, factorial shorthand)
+        expr = preprocess_expression(expr)
+
+        # If expression starts with operator, and previous result provided, prepend it
+        if expr and expr[0] in "+-*/" and prev is not None:
+            try:
+                prev_num = float(prev)
+            except Exception:
+                prev_num = 0
+            expr = f"{prev_num}{expr}"
+
+        # Build allowed functions map for current MODE/SECOND
+        safe_funcs = build_function_map()
+
+        # Final security check: disallow double-underscores or builtin names
+        if "__" in expr or "import" in expr or "open(" in expr:
+            return jsonify({"error": "Error"}), 400
+
+        # Evaluate using eval with restricted globals
+        try:
+            result = eval(expr, {"__builtins__": None}, safe_funcs)
+        except ZeroDivisionError:
+            return jsonify({"error": "Error"}), 400
+        except Exception:
+            return jsonify({"error": "Error"}), 400
+
+        # Format and persist
+        rounded = apple_round(result)
+
+        if session_id:
+            db = get_db()
+            db.execute(
+                "INSERT INTO history (session_id, expression, result) VALUES (?, ?, ?)",
+                (session_id, expr, str(rounded))
+            )
+            db.commit()
+
+        # Return Apple-like JSON
+        return jsonify({"result": rounded, "raw": result})
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+# -------------------------
+# Convert endpoint (unchanged behavior)
+# -------------------------
+@app.route("/convert", methods=["POST"])
+def convert_units():
+    p = request.json or {}
+    from_unit = p.get("from_unit")
+    to_unit = p.get("to_unit")
+    try:
+        value = float(p.get("value"))
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+    category = p.get("category")
+
+    try:
+        if category not in CONVERSIONS:
+            raise ValueError("Invalid category")
+        if from_unit not in CONVERSIONS[category] or to_unit not in CONVERSIONS[category]:
+            raise ValueError("Invalid units in the specified category")
+
+        if category == "temperature":
+            if from_unit == "C" and to_unit == "F":
+                result = (value * 9/5) + 32
+            elif from_unit == "F" and to_unit == "C":
+                result = (value - 32) * 5/9
+            elif from_unit == "C" and to_unit == "K":
+                result = value + 273.15
+            elif from_unit == "K" and to_unit == "C":
+                result = value - 273.15
+            elif from_unit == "F" and to_unit == "K":
+                result = (value - 32) * 5/9 + 273.15
+            elif from_unit == "K" and to_unit == "F":
+                result = (value - 273.15) * 9/5 + 32
+            else:
+                raise ValueError("Unsupported temperature conversion")
+        else:
+            result = (value * CONVERSIONS[category][from_unit]) / CONVERSIONS[category][to_unit]
+
+        return jsonify({"result": apple_round(result)})
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+# -------------------------
+# History endpoint (unchanged behavior)
+# -------------------------
+@app.route("/history", methods=["GET"])
+def get_history():
+    session_id = request.args.get("session_id")
+    try:
+        if not session_id:
+            raise ValueError("Session ID is required")
+        db = get_db()
+        cursor = db.execute(
+            "SELECT expression, result, timestamp FROM history WHERE session_id = ? ORDER BY timestamp DESC",
+            (session_id,)
+        )
+        history = [{"expression": row["expression"], "result": row["result"], "timestamp": row["timestamp"]} for row in cursor.fetchall()]
+        return jsonify({"history": history})
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+# -------------------------
+# Units listing (unchanged)
+# -------------------------
+@app.route("/units", methods=["GET"])
+def get_units():
+    try:
+        return jsonify({"units": CONVERSIONS})
+    except Exception:
+        return jsonify({"error": "Error"}), 500
+
+# -------------------------
+# Currency update (unchanged)
+# -------------------------
+@app.route("/update_currency", methods=["POST"])
+def update_currency():
+    p = request.json or {}
+    admin_key = p.get("admin_key")
+    new_rates = p.get("rates", {})
+
+    try:
+        expected_key = os.environ.get("ADMIN_KEY")
+        if not expected_key or admin_key != expected_key:
+            raise PermissionError("Unauthorized access")
+        if not isinstance(new_rates, dict):
+            raise ValueError("Rates must be a dictionary")
+
+        CURRENCY_RATES.update(new_rates)
+        return jsonify({"message": "Currency rates updated successfully"})
+    except PermissionError:
+        return jsonify({"error": "Error"}), 403
+    except Exception:
+        return jsonify({"error": "Error"}), 400
+
+# -------------------------
+# Run
+# -------------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=True)
